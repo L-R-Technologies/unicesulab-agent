@@ -1,5 +1,3 @@
-"""Loop da porta serial: abre com retry, escuta, fecha capturas e guarda na fila."""
-
 import logging
 import threading
 import time
@@ -7,8 +5,9 @@ from collections.abc import Callable
 from datetime import datetime
 
 from agent.baud_detector import detect_baudrate
+from agent.connection import Connection
 from agent.constants import (
-    SERIAL_NOT_CONFIGURED_WAIT_SECONDS,
+    SERIAL_IDLE_WAIT_SECONDS,
     SERIAL_OPEN_BACKOFF_STEPS_SECONDS,
 )
 from agent.database import LocalDatabase
@@ -25,9 +24,9 @@ from agent.serial_settings import SerialSettings
 from agent.state import (
     SERIAL_CONNECTING,
     SERIAL_DETECTING,
+    SERIAL_DISABLED,
     SERIAL_ERROR,
     SERIAL_LISTENING,
-    SERIAL_NOT_CONFIGURED,
     AgentState,
 )
 
@@ -41,15 +40,22 @@ class CaptureWorker(threading.Thread):
         self,
         local_db: LocalDatabase,
         state: AgentState,
+        connection_id: int,
         source_factory: SourceFactory = open_serial_port,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        super().__init__(daemon=True, name="capture-worker")
+        super().__init__(daemon=True, name=f"capture-worker-{connection_id}")
         self._db = local_db
         self._state = state
+        self._connection_id = connection_id
+        self._connection_state = state.connection(connection_id)
         self._source_factory = source_factory
         self._clock = clock
         self._stop_event = threading.Event()
+
+    @property
+    def connection_id(self) -> int:
+        return self._connection_id
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -59,9 +65,11 @@ class CaptureWorker(threading.Thread):
             try:
                 self._run_cycle()
             except Exception:
-                logger.exception("Erro inesperado no ciclo da porta serial")
-                self._state.set_serial_status(SERIAL_ERROR, "Erro inesperado. Veja os logs.")
-                self._wait(SERIAL_NOT_CONFIGURED_WAIT_SECONDS)
+                logger.exception("Erro inesperado na conexão %d", self._connection_id)
+                self._connection_state.set_serial_status(
+                    SERIAL_ERROR, "Erro inesperado. Veja os logs."
+                )
+                self._wait(SERIAL_IDLE_WAIT_SECONDS)
 
     def _wait(self, seconds: float) -> None:
         self._stop_event.wait(seconds)
@@ -69,41 +77,40 @@ class CaptureWorker(threading.Thread):
     def _should_reopen(self) -> bool:
         return (
             self._stop_event.is_set()
-            or self._state.serial_config_changed.is_set()
-            or self._state.detect_requested.is_set()
+            or self._connection_state.config_changed.is_set()
+            or self._connection_state.detect_requested.is_set()
         )
 
-    # --- Ciclo principal ---
-
     def _run_cycle(self) -> None:
-        self._state.serial_config_changed.clear()
-        settings = SerialSettings.load(self._db)
+        self._connection_state.config_changed.clear()
+        row = self._db.get_connection(self._connection_id)
 
-        if not settings.is_configured:
-            self._state.set_serial_status(SERIAL_NOT_CONFIGURED)
-            self._state.detect_requested.clear()
-            self._wait(SERIAL_NOT_CONFIGURED_WAIT_SECONDS)
+        if row is None or not row["enabled"]:
+            self._connection_state.set_serial_status(SERIAL_DISABLED)
+            self._connection_state.detect_requested.clear()
+            self.stop()
             return
 
-        if self._state.detect_requested.is_set():
-            self._run_detection(settings)
+        connection = Connection.from_row(row)
+
+        if self._connection_state.detect_requested.is_set():
+            self._run_detection(connection)
             return
 
-        source = self._open_with_retry(settings)
+        source = self._open_with_retry(connection.serial)
         if source is None:
             return
 
-        self._state.set_serial_status(SERIAL_LISTENING)
+        self._connection_state.set_serial_status(SERIAL_LISTENING)
         try:
-            self._listen(source, settings)
+            self._listen(source, connection.serial)
         finally:
             source.close()
 
     def _open_with_retry(self, settings: SerialSettings) -> ByteSource | None:
-        """Insiste na abertura até conseguir, parar ou a configuração mudar."""
         attempt = 0
         while not self._should_reopen():
-            self._state.set_serial_status(SERIAL_CONNECTING)
+            self._connection_state.set_serial_status(SERIAL_CONNECTING)
             try:
                 source = self._source_factory(settings)
                 logger.info("Porta %s aberta a %d baud", settings.port, settings.baudrate)
@@ -111,7 +118,7 @@ class CaptureWorker(threading.Thread):
             except SerialOpenError as exc:
                 attempt += 1
                 logger.warning("Tentativa %d de abrir %s falhou: %s", attempt, settings.port, exc)
-                self._state.set_serial_status(SERIAL_ERROR, str(exc))
+                self._connection_state.set_serial_status(SERIAL_ERROR, str(exc))
                 backoff_index = min(attempt - 1, len(SERIAL_OPEN_BACKOFF_STEPS_SECONDS) - 1)
                 self._wait(SERIAL_OPEN_BACKOFF_STEPS_SECONDS[backoff_index])
         return None
@@ -124,18 +131,17 @@ class CaptureWorker(threading.Thread):
                 data = source.read_available()
             except SerialReadError as exc:
                 logger.warning("Leitura da porta %s falhou: %s", settings.port, exc)
-                self._state.set_serial_status(SERIAL_ERROR, str(exc))
+                self._connection_state.set_serial_status(SERIAL_ERROR, str(exc))
                 self._store_capture(framer.flush())
                 return
 
             if data:
-                self._state.append_live_text(decode_live_text(data))
+                self._connection_state.append_live_text(decode_live_text(data))
                 for completed in framer.feed(data):
                     self._store_capture(completed)
             else:
                 self._store_capture(framer.poll())
 
-        # Ao sair (parada, reconfiguração ou detecção) nada fica perdido no buffer
         self._store_capture(framer.flush())
 
     def _store_capture(self, raw_bytes: bytes | None) -> None:
@@ -147,23 +153,31 @@ class CaptureWorker(threading.Thread):
             return
 
         capture_id = self._db.insert_capture(
-            capture.text, capture.raw_bytes_hex, capture.raw_hash, capture.captured_at_iso
+            self._connection_id,
+            capture.text,
+            capture.raw_bytes_hex,
+            capture.raw_hash,
+            capture.captured_at_iso,
         )
-        logger.info("Captura #%d guardada (%d bytes)", capture_id, len(raw_bytes))
+        logger.info(
+            "Captura %d guardada na conexão %d (%d bytes)",
+            capture_id,
+            self._connection_id,
+            len(raw_bytes),
+        )
         self._state.upload_requested.set()
 
-    # --- Detecção de baudrate ---
-
-    def _run_detection(self, settings: SerialSettings) -> None:
-        self._state.detect_requested.clear()
-        self._state.set_detect_running()
-        self._state.set_serial_status(SERIAL_DETECTING)
+    def _run_detection(self, connection: Connection) -> None:
+        self._connection_state.detect_requested.clear()
+        self._connection_state.set_detect_running()
+        self._connection_state.set_serial_status(SERIAL_DETECTING)
 
         result = detect_baudrate(
-            settings, self._source_factory, clock=self._clock, stop_event=self._stop_event
+            connection.serial, self._source_factory, clock=self._clock, stop_event=self._stop_event
         )
-        logger.info("Detecção de baudrate: %s", result.message)
+        logger.info("Detecção na conexão %d: %s", self._connection_id, result.message)
 
         if result.best_baudrate is not None:
-            settings.with_baudrate(result.best_baudrate).save(self._db)
-        self._state.set_detect_result(result.to_dict())
+            updated = connection.with_serial(connection.serial.with_baudrate(result.best_baudrate))
+            self._db.update_connection(self._connection_id, updated.to_db_fields())
+        self._connection_state.set_detect_result(result.to_dict())

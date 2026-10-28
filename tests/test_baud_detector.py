@@ -8,7 +8,6 @@ READ_TIMEOUT = 1.0
 
 
 class FakeSource:
-    """Entrega `payload` na primeira leitura e depois silêncio."""
 
     def __init__(self, clock: FakeClock, payload: bytes) -> None:
         self._clock = clock
@@ -16,7 +15,6 @@ class FakeSource:
         self.closed = False
 
     def read_available(self) -> bytes:
-        # Cada leitura "gasta" o timeout, como numa porta real sem dados
         self._clock.advance(READ_TIMEOUT)
         payload, self._payload = self._payload, b""
         return payload

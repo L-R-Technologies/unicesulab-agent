@@ -1,36 +1,38 @@
-from pathlib import Path
-
 import pytest
 
-from agent.database import LocalDatabase
 from agent import serial_settings
 from agent.serial_settings import SerialSettings, parse_serial_settings
 
 
-@pytest.fixture
-def local_db(tmp_path: Path) -> LocalDatabase:
-    return LocalDatabase(tmp_path / "test.db")
-
-
-def test_defaults_match_the_lab_machine(local_db: LocalDatabase) -> None:
-    settings = SerialSettings.load(local_db)
+def test_defaults_match_the_lab_machine() -> None:
+    settings = SerialSettings.defaults()
 
     assert settings.port is None
     assert not settings.is_configured
     assert (settings.baudrate, settings.bytesize, settings.parity) == (57600, 8, "N")
     assert settings.stopbits == 1
     assert settings.rtscts is True
+    assert settings.idle_timeout_seconds == 3.0
 
 
-def test_save_and_load_roundtrip(local_db: LocalDatabase) -> None:
-    settings = SerialSettings(
+def test_from_row_and_api_payload() -> None:
+    row = {
+        "port": "/dev/ttyUSB0",
+        "baudrate": 9600,
+        "bytesize": 7,
+        "parity": "E",
+        "stopbits": 2.0,
+        "rtscts": 0,
+        "idle_timeout_seconds": 1.5,
+    }
+
+    settings = SerialSettings.from_row(row)
+
+    assert settings == SerialSettings(
         port="/dev/ttyUSB0", baudrate=9600, bytesize=7, parity="E", stopbits=2,
         rtscts=False, idle_timeout_seconds=1.5,
     )
-    settings.save(local_db)
-
-    assert SerialSettings.load(local_db) == settings
-    assert SerialSettings.load(local_db).to_api_payload() == {
+    assert settings.to_api_payload() == {
         "port": "/dev/ttyUSB0", "baudrate": 9600, "bytesize": 7, "parity": "E",
         "stopbits": 2, "rtscts": False,
     }

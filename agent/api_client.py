@@ -1,5 +1,3 @@
-"""Cliente HTTP das rotas /api/agent do UNICESULAB (Laravel)."""
-
 import requests
 
 from agent import __version__
@@ -10,22 +8,23 @@ _HTTP_FORBIDDEN = 403
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_SERVER_ERROR = 500
 _HTTP_CLIENT_ERROR = 400
+_ERROR_TEXT_MAX_CHARS = 200
 
 
 class ApiError(Exception):
-    """Erro genérico de comunicação com o servidor."""
+    pass
 
 
 class ApiAuthError(ApiError):
-    """Token inválido, revogado ou agente inativo."""
+    pass
 
 
 class ApiUnavailableError(ApiError):
-    """Servidor inacessível (rede, timeout, limite de requisições ou erro 5xx)."""
+    pass
 
 
 class ApiRejectedError(ApiError):
-    """O servidor recusou a requisição de forma definitiva (ex.: validação 422)."""
+    pass
 
 
 class ApiClient:
@@ -66,14 +65,12 @@ class ApiClient:
         return response
 
     def ping(self) -> dict:
-        """Valida o token e devolve agente + máquina vinculada."""
         response = self._request("GET", "/api/agent/ping", params={"agent_version": __version__})
         return _data_of(response)
 
     def send_capture(
         self, raw_text: str, raw_hash: str, captured_at: str, serial_settings: dict
     ) -> dict:
-        """Envia uma captura. Devolve {"id", "status", "duplicate"}."""
         response = self._request(
             "POST",
             "/api/agent/lab-captures",
@@ -103,7 +100,7 @@ def _error_message(response: requests.Response) -> str:
     try:
         payload = response.json()
     except ValueError:
-        return response.text[:200]
+        return response.text[:_ERROR_TEXT_MAX_CHARS]
     if isinstance(payload, dict) and isinstance(payload.get("message"), str):
         return payload["message"]
-    return response.text[:200]
+    return response.text[:_ERROR_TEXT_MAX_CHARS]

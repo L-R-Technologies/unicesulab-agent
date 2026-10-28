@@ -1,21 +1,15 @@
-"""Estado compartilhado entre os workers (serial e envio) e a interface.
-
-Servidor e porta serial têm status independentes: dá para configurar a porta
-e capturar localmente antes de parear com o servidor (e vice-versa).
-"""
-
 import threading
 
 from agent.constants import LIVE_TEXT_MAX_CHARS
 
 SERVER_STARTING = "starting"
-SERVER_NOT_PAIRED = "not_paired"
+SERVER_NOT_CONFIGURED = "not_configured"
 SERVER_ONLINE = "online"
 SERVER_OFFLINE = "offline"
 SERVER_AUTH_ERROR = "auth_error"
 
 SERIAL_STARTING = "starting"
-SERIAL_NOT_CONFIGURED = "not_configured"
+SERIAL_DISABLED = "disabled"
 SERIAL_CONNECTING = "connecting"
 SERIAL_LISTENING = "listening"
 SERIAL_DETECTING = "detecting"
@@ -26,7 +20,7 @@ DETECT_RUNNING = "running"
 DETECT_DONE = "done"
 
 
-class AgentState:
+class ConnectionState:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._server_status = SERVER_STARTING
@@ -38,30 +32,23 @@ class AgentState:
         self._live_text = ""
         self._detect_status = DETECT_IDLE
         self._detect_result: dict | None = None
-        # Pareamento mudou (URL/token): o worker de envio recria o cliente
-        self.pairing_changed = threading.Event()
-        # Configuração serial mudou ou o operador pediu reconexão
-        self.serial_config_changed = threading.Event()
-        # Operador pediu detecção de baudrate (executada pelo worker serial)
+        self.config_changed = threading.Event()
         self.detect_requested = threading.Event()
-        # Há captura nova ou reenvio pedido: acorda o worker de envio
-        self.upload_requested = threading.Event()
-        # Força um heartbeat imediato (botão "Tentar novamente")
         self.heartbeat_requested = threading.Event()
-
-    # --- Servidor ---
 
     def set_server_status(self, status: str, error_message: str | None = None) -> None:
         with self._lock:
             self._server_status = status
             self._server_error_message = error_message
 
+    def server_status(self) -> str:
+        with self._lock:
+            return self._server_status
+
     def set_pairing_info(self, agent_name: str | None, machine: dict | None) -> None:
         with self._lock:
             self._agent_name = agent_name
             self._machine = machine
-
-    # --- Porta serial ---
 
     def set_serial_status(self, status: str, error_message: str | None = None) -> None:
         with self._lock:
@@ -71,14 +58,11 @@ class AgentState:
     def append_live_text(self, text: str) -> None:
         with self._lock:
             combined = self._live_text + text
-            # Mantém só o fim do buffer para a tela não crescer sem limite
             self._live_text = combined[-LIVE_TEXT_MAX_CHARS:]
 
     def clear_live_text(self) -> None:
         with self._lock:
             self._live_text = ""
-
-    # --- Detecção de baudrate ---
 
     def set_detect_running(self) -> None:
         with self._lock:
@@ -108,3 +92,47 @@ class AgentState:
                 "detect_status": self._detect_status,
                 "detect_result": self._detect_result,
             }
+
+
+class AgentState:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._connections: dict[int, ConnectionState] = {}
+        self.connections_changed = threading.Event()
+        self.server_url_changed = threading.Event()
+        self.upload_requested = threading.Event()
+
+    def connection(self, connection_id: int) -> ConnectionState:
+        with self._lock:
+            state = self._connections.get(connection_id)
+            if state is None:
+                state = ConnectionState()
+                self._connections[connection_id] = state
+            return state
+
+    def remove_connection(self, connection_id: int) -> None:
+        with self._lock:
+            self._connections.pop(connection_id, None)
+
+    def connection_ids(self) -> list[int]:
+        with self._lock:
+            return list(self._connections)
+
+    def request_heartbeats(self) -> None:
+        for state in self._all_connections():
+            state.heartbeat_requested.set()
+        self.upload_requested.set()
+
+    def snapshot(self) -> dict[int, dict]:
+        return {
+            connection_id: state.snapshot()
+            for connection_id, state in self._connection_items()
+        }
+
+    def _all_connections(self) -> list[ConnectionState]:
+        with self._lock:
+            return list(self._connections.values())
+
+    def _connection_items(self) -> list[tuple[int, ConnectionState]]:
+        with self._lock:
+            return list(self._connections.items())

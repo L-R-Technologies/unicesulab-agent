@@ -1,9 +1,3 @@
-"""Ícone na bandeja do sistema (suportado apenas no Windows).
-
-Em outras plataformas (dev em macOS/Linux) o agente roda como janela
-comum e fechar a janela encerra o processo.
-"""
-
 import logging
 import sys
 from collections.abc import Callable
@@ -24,7 +18,6 @@ def _draw_icon_image():
 
     image = Image.new("RGB", (_ICON_SIZE, _ICON_SIZE), _ICON_BACKGROUND)
     draw = ImageDraw.Draw(image)
-    # Silhueta de conector serial: trapézio com dois "pinos", sem depender de fontes
     draw.polygon([(12, 20), (52, 20), (46, 44), (18, 44)], fill=_ICON_FOREGROUND)
     draw.rectangle((22, 28, 28, 36), fill=_ICON_BACKGROUND)
     draw.rectangle((36, 28, 42, 36), fill=_ICON_BACKGROUND)
@@ -32,7 +25,6 @@ def _draw_icon_image():
 
 
 def create_tray_icon(on_open: Callable[[], None], on_quit: Callable[[], None]):
-    """Cria e inicia o ícone da bandeja. Retorna None se indisponível."""
     if not is_tray_supported():
         return None
 

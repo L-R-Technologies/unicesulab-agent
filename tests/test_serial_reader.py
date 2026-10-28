@@ -93,7 +93,6 @@ def test_fixture_produces_four_captures(clock: FakeClock, coagulometer_sample: b
     captures = []
     chunk_size = 16
     for block in blocks:
-        # A máquina imprime em rajada; os bytes chegam em pedaços pequenos
         for offset in range(0, len(block), chunk_size):
             captures.extend(framer.feed(block[offset : offset + chunk_size]))
             clock.advance(0.05)

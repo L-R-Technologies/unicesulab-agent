@@ -8,45 +8,62 @@ para os campos do exame e o aluno/professor confere antes de vincular.
 ## Como funciona
 
 ```
-máquina ──RS-232──► agente ──POST /api/agent/lab-captures──► UNICESULAB (Laravel)
-                      │                                           │
-                      └──────────── GET /api/agent/ping ──────────┘ (heartbeat 30s)
+máquina A ──RS-232──► agente ──POST /api/agent/lab-captures (token A)──► UNICESULAB (Laravel)
+máquina B ──RS-232──►   │    ──POST /api/agent/lab-captures (token B)──►       │
+                        └──────────── GET /api/agent/ping (por máquina) ───────┘ (heartbeat 30s)
 ```
 
-1. **Pareamento**: na primeira execução o agente pede a URL do servidor e o
-   token do agente (gerado pelo professor na tela da máquina, em *Máquinas*).
-   O token é validado e salvo no banco local. Dá para "Configurar depois" e
-   ajustar a porta serial primeiro: as capturas ficam na fila local e são
-   enviadas quando o pareamento acontecer.
-2. **Porta serial**: o operador escolhe a porta (COMx no Windows,
-   /dev/ttyUSBx no Linux) e os parâmetros. Os defaults são os que funcionam
-   com o coagulômetro do laboratório: **57600 baud, 8N1, RTS/CTS ligado**.
-   A primeira abertura da porta costuma falhar (driver CH340 no Windows), por
-   isso o agente insiste com backoff (0,5 s → 1 s → 2 s → 5 s) até abrir.
-3. **Captura**: a máquina imprime cada resultado de uma vez e depois fica em
-   silêncio. O agente acumula os bytes e, após o *tempo de silêncio* (3 s por
-   padrão) sem receber nada, fecha uma captura. Cada captura guarda o texto
-   normalizado, os bytes crus (hex) e um hash SHA-256 do texto, usado pelo
-   servidor para ignorar reenvios duplicados.
-4. **Envio**: um worker envia as capturas pendentes em ordem. Com o servidor
-   fora do ar, aplica backoff progressivo (1s → 5s → 30s) e tenta de novo;
-   nada é perdido. Rejeição definitiva do servidor (ex.: validação) marca a
-   captura como *Recusada* com o motivo; o botão **Reenviar falhas** devolve
-   essas capturas à fila.
+Um único agente, em uma única janela, atende várias máquinas ligadas ao mesmo
+computador: cada máquina é uma **conexão** com a própria porta serial, os
+próprios parâmetros e o próprio token. O endereço do servidor é um só.
+
+1. **Servidor**: na primeira execução o agente pede só o endereço do UNICESULAB.
+   Dá para "Configurar depois": as capturas ficam na fila local e são
+   enviadas quando o endereço for informado.
+2. **Máquinas**: em **Adicionar máquina** o operador informa um nome, a porta
+   (COMx no Windows, /dev/ttyUSBx no Linux), os parâmetros seriais e o token
+   gerado pelo professor na tela da máquina, em *Máquinas* no UNICESULAB.
+   O token é validado no servidor ao salvar; com o servidor fora do ar, marque
+   "salvar sem validar". Os defaults são os que funcionam com o coagulômetro
+   do laboratório: **57600 baud, 8N1, RTS/CTS ligado**. A primeira abertura
+   da porta costuma falhar (driver CH340 no Windows), por isso cada conexão
+   insiste com backoff (0,5 s → 1 s → 2 s → 5 s) até abrir.
+3. **Captura**: cada conexão tem o próprio leitor. A máquina imprime cada
+   resultado de uma vez e depois fica em silêncio; o agente acumula os bytes
+   e, após o *tempo de silêncio* (3 s por padrão) sem receber nada, fecha uma
+   captura ligada àquela conexão. Cada captura guarda o texto normalizado, os
+   bytes crus (hex) e um hash SHA-256 do texto, usado pelo servidor para
+   ignorar reenvios duplicados da mesma máquina.
+4. **Envio**: um worker único percorre as conexões ativas e envia as capturas
+   pendentes de cada uma com o token dela. O status do servidor é por
+   conexão: um token recusado em uma máquina não para as outras. Com o
+   servidor fora do ar, aplica backoff progressivo (1s → 5s → 30s) e tenta de
+   novo; nada é perdido. Rejeição definitiva (ex.: validação) marca a captura
+   como *Recusada* com o motivo; **Reenviar falhas** devolve essas capturas à
+   fila.
 5. **Detectar baudrate**: a máquina só transmite quando imprime um resultado,
-   então a detecção pede que o operador dispare um teste enquanto o agente
-   escuta cada velocidade (115200 → 1200) por alguns segundos e pontua pela
-   proporção de bytes ASCII legíveis. Só salva o baudrate quando encontra
-   uma velocidade com ≥ 90% de bytes legíveis.
+   então a detecção pede que o operador dispare um teste naquela máquina
+   enquanto o agente escuta cada velocidade (115200 → 1200) por alguns
+   segundos e pontua pela proporção de bytes ASCII legíveis. Só salva o
+   baudrate quando encontra uma velocidade com ≥ 90% de bytes legíveis.
+
+Cada card de máquina mostra a porta, o status da porta e do servidor, a
+máquina vinculada (vinda do servidor), um console ao vivo e os botões
+Editar, Detectar baudrate, Reconectar, Revalidar token e Remover. Desativar
+uma máquina (checkbox no formulário) para o leitor e o envio dela sem apagar
+nada.
 
 ## Persistência local
 
 SQLite (WAL) em `%LOCALAPPDATA%\UnicesulabAgent\` (Windows) ou
 `~/.local/share/UnicesulabAgent/` (Linux/macOS). Tabelas:
 
-- `config`: key/value (URL do servidor, token, parâmetros da porta serial)
-- `captures`: fila e histórico das capturas (texto, bytes crus, hash, status,
-  id no servidor, tentativas, erro)
+- `config`: key/value (endereço do servidor)
+- `connections`: máquinas conectadas (nome, porta, parâmetros seriais, token,
+  ativa)
+- `captures`: fila e histórico das capturas (conexão de origem, texto, bytes
+  crus, hash, status, id no servidor, tentativas, erro). Remover uma conexão
+  apaga as capturas dela.
 
 Logs em `agent.log` no mesmo diretório. O token nunca é logado.
 
@@ -80,8 +97,10 @@ uv run ruff check .
 
 Os testes cobrem o framing das capturas (com uma amostra real do
 coagulômetro em `tests/fixtures/coagulometro_sample.bin`), a detecção de
-baudrate, a fila local, os workers e o cliente HTTP, tudo sem porta física:
-a fonte de bytes é uma abstração (`ByteSource`) com implementações fake.
+baudrate, a fila local, o gerenciador de conexões, os workers com várias
+máquinas e tokens, a bridge da interface e o cliente HTTP, tudo sem porta
+física: a fonte de bytes é uma abstração (`ByteSource`) com implementações
+fake.
 
 ### CSS (Tailwind)
 
@@ -116,7 +135,7 @@ Autenticação por `Authorization: Bearer <token>`.
 | `GET` | `/api/agent/ping?agent_version=` | Valida o token, devolve agente e máquina vinculada |
 | `POST` | `/api/agent/lab-captures` | Envia uma captura (`raw_text`, `raw_hash`, `captured_at`, `agent_version`, `serial_settings`) |
 
-Respostas `401`/`403` indicam token inválido ou agente inativo (o agente
-para de enviar até o pareamento ser refeito); `422` é rejeição definitiva da
+Respostas `401`/`403` indicam token inválido ou agente inativo (a conexão
+correspondente para de enviar até o token ser corrigido; as outras seguem); `422` é rejeição definitiva da
 captura; `429`/`5xx`/timeout contam como servidor indisponível (reenvio
 automático).

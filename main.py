@@ -1,5 +1,3 @@
-"""Ponto de entrada do agente de captura UNICESULAB."""
-
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
@@ -7,7 +5,7 @@ from pathlib import Path
 
 import webview
 
-from agent.capture_worker import CaptureWorker
+from agent.connection_manager import ConnectionManager
 from agent.database import LocalDatabase, default_data_dir
 from agent.state import AgentState
 from agent.tray import create_tray_icon, stop_tray_icon
@@ -15,9 +13,9 @@ from agent.ui.bridge import JsBridge
 from agent.upload_worker import UploadWorker
 
 WINDOW_TITLE = "UNICESULAB — Agente de captura"
-WINDOW_WIDTH = 980
-WINDOW_HEIGHT = 720
-WINDOW_MIN_SIZE = (760, 560)
+WINDOW_WIDTH = 1040
+WINDOW_HEIGHT = 760
+WINDOW_MIN_SIZE = (800, 600)
 LOG_MAX_BYTES = 1_000_000
 LOG_BACKUP_COUNT = 3
 
@@ -40,7 +38,6 @@ def configure_logging() -> None:
 
 
 def resolve_web_entry() -> str:
-    """Caminho do index.html, tanto no fonte quanto empacotado (PyInstaller)."""
     base_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
     return str(base_dir / "agent" / "ui" / "web" / "index.html")
 
@@ -49,14 +46,14 @@ class Application:
     def __init__(self) -> None:
         self._db = LocalDatabase()
         self._state = AgentState()
-        self._capture_worker = CaptureWorker(self._db, self._state)
+        self._connection_manager = ConnectionManager(self._db, self._state)
         self._upload_worker = UploadWorker(self._db, self._state)
         self._window: webview.Window | None = None
         self._tray_icon = None
         self._quitting = False
 
     def _stop_workers(self) -> None:
-        self._capture_worker.stop()
+        self._connection_manager.stop()
         self._upload_worker.stop()
 
     def _quit(self) -> None:
@@ -70,8 +67,6 @@ class Application:
             self._window.show()
 
     def _on_window_closing(self) -> bool:
-        # Com bandeja disponível, fechar a janela só a esconde e o agente
-        # continua capturando; encerrar de verdade é pelo menu da bandeja
         if self._tray_icon is not None and not self._quitting:
             if self._window is not None:
                 self._window.hide()
@@ -83,7 +78,7 @@ class Application:
         configure_logging()
         logging.getLogger(__name__).info("Iniciando agente de captura")
 
-        self._capture_worker.start()
+        self._connection_manager.start()
         self._upload_worker.start()
         self._tray_icon = create_tray_icon(on_open=self._show_window, on_quit=self._quit)
 

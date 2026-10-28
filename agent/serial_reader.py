@@ -1,10 +1,3 @@
-"""Leitura da porta serial e montagem das capturas.
-
-A máquina imprime cada resultado de uma vez e depois fica em silêncio, então
-o fim de uma captura é detectado por inatividade (idle timeout). A fonte de
-bytes é abstraída (ByteSource) para testar o framing sem porta física.
-"""
-
 import hashlib
 import re
 import time
@@ -23,17 +16,15 @@ _TEXT_ENCODING = "latin-1"
 
 
 class SerialOpenError(Exception):
-    """Não foi possível abrir a porta (ocupada, inexistente ou driver instável)."""
+    pass
 
 
 class SerialReadError(Exception):
-    """A porta falhou durante a leitura (cabo removido, driver caiu)."""
+    pass
 
 
 class ByteSource(Protocol):
-    def read_available(self) -> bytes:
-        """Devolve os bytes disponíveis, ou b"" se nada chegou dentro do timeout."""
-        ...
+    def read_available(self) -> bytes: ...
 
     def close(self) -> None: ...
 
@@ -45,7 +36,6 @@ class PySerialSource:
     def read_available(self) -> bytes:
         try:
             pending = self._connection.in_waiting
-            # Com in_waiting == 0, read(1) bloqueia até o timeout de leitura
             return self._connection.read(pending or 1)
         except (serial.SerialException, OSError) as exc:
             raise SerialReadError(f"Falha ao ler a porta serial: {exc}") from exc
@@ -54,7 +44,6 @@ class PySerialSource:
         try:
             self._connection.close()
         except (serial.SerialException, OSError):
-            # Porta já sumiu (cabo removido); não há mais nada a liberar
             return
 
 
@@ -77,8 +66,6 @@ def open_serial_port(settings: SerialSettings) -> PySerialSource:
 
 
 class CaptureFramer:
-    """Acumula bytes e fecha uma captura após `idle_timeout` sem dados novos."""
-
     def __init__(
         self,
         idle_timeout_seconds: float,
@@ -96,7 +83,6 @@ class CaptureFramer:
         return bool(self._buffer)
 
     def feed(self, data: bytes) -> list[bytes]:
-        """Adiciona bytes recebidos. Devolve capturas fechadas por tamanho máximo."""
         if not data:
             return []
         self._buffer.extend(data)
@@ -109,7 +95,6 @@ class CaptureFramer:
         return completed
 
     def poll(self) -> bytes | None:
-        """Fecha a captura se o silêncio já passou do idle timeout."""
         if not self._buffer or self._last_data_at is None:
             return None
         if self._clock() - self._last_data_at < self._idle_timeout:
@@ -117,7 +102,6 @@ class CaptureFramer:
         return self.flush()
 
     def flush(self) -> bytes | None:
-        """Fecha a captura pendente agora (ao desconectar/parar)."""
         if not self._buffer:
             return None
         data = bytes(self._buffer)
@@ -143,7 +127,6 @@ class Capture:
 
 
 def normalize_capture_text(raw: bytes) -> str:
-    """Decodifica e padroniza quebras de linha (a máquina usa "\\n\\r")."""
     text = raw.decode(_TEXT_ENCODING, errors="replace")
     text = text.replace("\r\n", "\n").replace("\n\r", "\n").replace("\r", "\n")
     lines = [line.rstrip() for line in text.split("\n")]
@@ -151,7 +134,6 @@ def normalize_capture_text(raw: bytes) -> str:
 
 
 def decode_live_text(chunk: bytes) -> str:
-    """Texto para o console ao vivo: só descarta o CR para não duplicar linhas."""
     return chunk.decode(_TEXT_ENCODING, errors="replace").replace("\r", "")
 
 
@@ -160,7 +142,6 @@ def hash_capture_text(text: str) -> str:
 
 
 def build_capture(raw_bytes: bytes, captured_at: datetime) -> Capture | None:
-    """Monta a captura; devolve None se só vieram bytes em branco."""
     text = normalize_capture_text(raw_bytes)
     if not text.strip():
         return None
@@ -173,7 +154,6 @@ def build_capture(raw_bytes: bytes, captured_at: datetime) -> Capture | None:
 
 
 def extract_capture_preview(text: str) -> str:
-    """Rótulo curto para a tabela: a linha "EXAME:" quando existe, senão a 1ª linha."""
     match = _EXAM_LINE_PATTERN.search(text)
     if match:
         return match.group(1)

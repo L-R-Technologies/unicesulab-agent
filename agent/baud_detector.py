@@ -1,10 +1,3 @@
-"""Detecção de baudrate por varredura.
-
-Só funciona enquanto a máquina transmite: ela envia o resultado sozinha ao
-fim de cada teste, então o operador dispara um teste e a varredura escuta
-em cada velocidade, pontuando pela proporção de bytes ASCII legíveis.
-"""
-
 import logging
 import threading
 import time
@@ -95,7 +88,7 @@ def _score_baudrate(
     listen_seconds: float,
     clock: Callable[[], float],
 ) -> BaudScore:
-    logger.info("Detecção: escutando a %d baud", settings.baudrate)
+    logger.info("Detecção: escutando %s a %d baud", settings.port, settings.baudrate)
     try:
         source = source_factory(settings)
     except SerialOpenError as exc:
