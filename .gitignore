@@ -22,3 +22,7 @@ node_modules/
 .idea/
 .vscode/
 .DS_Store
+
+# Caches de ferramentas
+.pytest_cache/
+.ruff_cache/
