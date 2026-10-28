@@ -1,0 +1,28 @@
+[project]
+name = "unicesulab-agent"
+version = "0.1.0"
+description = "Agente de captura serial (RS-232) das máquinas do laboratório para o UNICESULAB"
+requires-python = ">=3.11"
+dependencies = [
+    "pyserial>=3.5",
+    "pywebview>=5.0",
+    "requests>=2.31",
+    "pystray>=0.19",
+    "pillow>=10.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "UP", "B", "BLE"]

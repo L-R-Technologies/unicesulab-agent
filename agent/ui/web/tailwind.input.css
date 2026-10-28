@@ -1,0 +1,7 @@
+@import 'tailwindcss';
+
+/* O atributo hidden controla a visibilidade das telas; sem isto, classes de
+   display do Tailwind (flex/grid) venceriam o estilo padrão do navegador */
+[hidden] {
+  display: none !important;
+}

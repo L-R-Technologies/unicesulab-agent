@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Build (PyInstaller)
+build/
+dist/
+*.spec
+
+# Dados locais do agente
+*.db
+*.db-wal
+*.db-shm
+
+# Build do CSS (Tailwind)
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store

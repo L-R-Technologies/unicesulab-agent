@@ -1,0 +1,13 @@
+{
+  "name": "unicesulab-agent-ui",
+  "private": true,
+  "description": "Build do CSS (Tailwind) da interface do agente",
+  "scripts": {
+    "build:css": "tailwindcss -i agent/ui/web/tailwind.input.css -o agent/ui/web/tailwind.css --minify",
+    "watch:css": "tailwindcss -i agent/ui/web/tailwind.input.css -o agent/ui/web/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.18",
+    "tailwindcss": "^4.1.18"
+  }
+}

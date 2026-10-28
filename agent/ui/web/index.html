@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UNICESULAB — Agente de captura</title>
+  <link rel="stylesheet" href="tailwind.css">
+</head>
+<body class="bg-slate-100 font-sans text-sm text-slate-800 antialiased">
+
+  <!-- Pareamento -->
+  <section id="view-pairing" class="flex min-h-screen items-center justify-center p-6" hidden>
+    <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8">
+      <div class="mb-6 text-center">
+        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-teal-600 text-lg font-bold text-white">UL</div>
+        <h1 class="mt-3 text-xl font-semibold">Parear agente</h1>
+        <p class="mt-1 text-slate-500">Cole o token gerado na tela da máquina no UNICESULAB.</p>
+      </div>
+
+      <label class="mb-4 block">
+        <span class="mb-1.5 block text-[13px] font-semibold">Endereço do servidor</span>
+        <input id="input-server-url" type="url" placeholder="https://unicesulab.exemplo.com"
+          autocomplete="off" spellcheck="false"
+          class="w-full rounded-lg border border-slate-200 px-3 py-2.5 outline-none focus:border-transparent focus:ring-2 focus:ring-teal-600">
+      </label>
+
+      <label class="mb-4 block">
+        <span class="mb-1.5 block text-[13px] font-semibold">Token do agente</span>
+        <textarea id="input-token" rows="3" placeholder="Cole o token aqui"
+          autocomplete="off" spellcheck="false"
+          class="w-full resize-y rounded-lg border border-slate-200 px-3 py-2.5 outline-none focus:border-transparent focus:ring-2 focus:ring-teal-600"></textarea>
+      </label>
+
+      <p id="pairing-error" class="mb-3 text-[13px] text-red-600" hidden></p>
+
+      <div class="flex flex-col gap-2">
+        <button id="btn-pair"
+          class="w-full rounded-lg bg-teal-600 px-4 py-2.5 font-semibold text-white hover:bg-teal-700 disabled:cursor-default disabled:opacity-50">
+          Conectar
+        </button>
+        <button id="btn-skip-pairing"
+          class="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 font-semibold text-slate-600 hover:bg-slate-50">
+          Configurar depois
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tela principal -->
+  <section id="view-main" class="mx-auto max-w-5xl p-6" hidden>
+    <header class="mb-4 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-600 text-sm font-bold text-white">UL</div>
+        <div>
+          <strong class="block text-sm">Agente de captura</strong>
+          <span id="agent-version" class="text-[11px] text-slate-500"></span>
+        </div>
+      </div>
+      <span id="status-pill" class="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-500">Iniciando…</span>
+    </header>
+
+    <div id="pairing-banner" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3.5" hidden>
+      <div>
+        <strong class="text-teal-700">Agente ainda não pareado</strong>
+        <p class="mt-0.5 text-[13px] text-slate-500">As capturas ficam guardadas localmente e só são enviadas após o pareamento.</p>
+      </div>
+      <button id="btn-open-pairing"
+        class="rounded-lg bg-teal-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-teal-700">
+        Parear agora
+      </button>
+    </div>
+
+    <div id="error-banner" class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3.5" hidden>
+      <div>
+        <strong id="error-title" class="text-red-600"></strong>
+        <p id="error-detail" class="mt-0.5 text-[13px] text-slate-500"></p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button id="btn-retry" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold hover:bg-slate-50">
+          Tentar novamente
+        </button>
+        <button id="btn-repair" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold hover:bg-slate-50" hidden>
+          Refazer pareamento
+        </button>
+      </div>
+    </div>
+
+    <div class="mb-5 grid grid-cols-1 gap-3.5 lg:grid-cols-5">
+      <!-- Servidor -->
+      <div class="rounded-xl border border-slate-200 bg-white p-4 lg:col-span-2">
+        <h2 class="mb-2 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">Servidor</h2>
+        <p id="card-server-url" class="mb-1 font-mono text-[13px] break-all text-slate-500">—</p>
+        <p id="card-machine" class="mb-2.5 text-xs text-slate-400"></p>
+        <div class="flex items-center justify-between gap-2">
+          <span id="card-server-status" class="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-500">—</span>
+          <button id="btn-repair-card" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">
+            Alterar pareamento
+          </button>
+        </div>
+      </div>
+
+      <!-- Porta serial -->
+      <div class="rounded-xl border border-slate-200 bg-white p-4 lg:col-span-3">
+        <div class="mb-2 flex items-center justify-between">
+          <h2 class="text-[11px] font-semibold tracking-wider text-slate-500 uppercase">Porta serial</h2>
+          <span id="card-serial-status" class="rounded-full bg-slate-200 px-3 py-1 text-xs font-bold text-slate-500">—</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+          <label class="col-span-2 block sm:col-span-3">
+            <span class="mb-1 block text-xs font-semibold">Porta</span>
+            <div class="flex gap-2">
+              <select id="input-port" class="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-[13px] outline-none focus:ring-2 focus:ring-teal-600"></select>
+              <button id="btn-refresh-ports" title="Atualizar lista de portas"
+                class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-slate-50">Atualizar</button>
+            </div>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs font-semibold">Baudrate</span>
+            <select id="input-baudrate" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-[13px] outline-none focus:ring-2 focus:ring-teal-600"></select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs font-semibold">Bits de dados</span>
+            <select id="input-bytesize" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-[13px] outline-none focus:ring-2 focus:ring-teal-600"></select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs font-semibold">Paridade</span>
+            <select id="input-parity" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-[13px] outline-none focus:ring-2 focus:ring-teal-600"></select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs font-semibold">Stop bits</span>
+            <select id="input-stopbits" class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-[13px] outline-none focus:ring-2 focus:ring-teal-600"></select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-xs font-semibold">Silêncio (s)</span>
+            <input id="input-idle-timeout" type="number" min="0.5" max="60" step="0.5" inputmode="decimal"
+              class="w-full rounded-lg border border-slate-200 px-2.5 py-2 font-mono text-[13px] outline-none focus:ring-2 focus:ring-teal-600">
+          </label>
+          <label class="flex items-end gap-2 pb-2">
+            <input id="input-rtscts" type="checkbox" class="h-4 w-4 accent-teal-600">
+            <span class="text-xs font-semibold">RTS/CTS</span>
+          </label>
+        </div>
+
+        <p id="serial-error" class="mt-2 text-xs text-red-600" hidden></p>
+        <p id="serial-hint" class="mt-2 text-xs text-slate-400">
+          Silêncio: segundos sem receber nada para considerar um resultado completo.
+        </p>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button id="btn-save-serial" class="rounded-lg bg-teal-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
+            Salvar e conectar
+          </button>
+          <button id="btn-reconnect" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold hover:bg-slate-50">
+            Reconectar
+          </button>
+          <button id="btn-detect" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold hover:bg-slate-50 disabled:opacity-50">
+            Detectar baudrate
+          </button>
+        </div>
+
+        <div id="detect-panel" class="mt-3 rounded-lg bg-amber-50 px-3.5 py-3" hidden>
+          <div id="detect-running" hidden>
+            <div class="flex items-center gap-2.5">
+              <div class="h-5 w-5 animate-spin rounded-full border-[3px] border-amber-200 border-t-amber-600"></div>
+              <p class="text-[13px]"><strong>Detectando…</strong> dispare um resultado na máquina agora. A varredura escuta cada velocidade por alguns segundos.</p>
+            </div>
+          </div>
+          <div id="detect-done" hidden>
+            <p id="detect-message" class="text-[13px]"></p>
+            <ul id="detect-scores" class="mt-1.5 flex flex-wrap gap-1.5"></ul>
+            <button id="btn-detect-dismiss" class="mt-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Fechar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Console -->
+    <div class="mb-5 rounded-xl border border-slate-200 bg-white p-4">
+      <div class="mb-2.5 flex items-baseline justify-between">
+        <h2 class="text-[15px] font-semibold">Console</h2>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-slate-400">tudo que chega pela porta, ao vivo</span>
+          <button id="btn-clear-console" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50">Limpar</button>
+        </div>
+      </div>
+      <pre id="console" class="h-56 overflow-auto rounded-lg bg-slate-900 p-3 font-mono text-[12px] leading-5 whitespace-pre-wrap text-emerald-200"></pre>
+    </div>
+
+    <!-- Capturas -->
+    <div class="rounded-xl border border-slate-200 bg-white p-4">
+      <div class="mb-2.5 flex items-baseline justify-between">
+        <h2 class="text-[15px] font-semibold">Últimas capturas</h2>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-slate-400">histórico local deste agente</span>
+          <button id="btn-retry-failed" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50" hidden>Reenviar falhas</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="border-b border-slate-200 text-left text-[11px] tracking-wider text-slate-500 uppercase">
+              <th class="px-2.5 py-2 font-semibold">#</th>
+              <th class="px-2.5 py-2 font-semibold">Capturado em</th>
+              <th class="px-2.5 py-2 font-semibold">Conteúdo</th>
+              <th class="px-2.5 py-2 font-semibold">Status</th>
+              <th class="px-2.5 py-2 font-semibold">Servidor</th>
+              <th class="px-2.5 py-2 font-semibold">Erro</th>
+            </tr>
+          </thead>
+          <tbody id="captures-tbody">
+            <tr><td colspan="6" class="px-2.5 py-8 text-center text-slate-400">Nenhuma captura ainda</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>
