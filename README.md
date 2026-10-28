@@ -96,14 +96,10 @@ npm run build:css        # ou npm run watch:css durante o desenvolvimento
 ## Build (Windows)
 
 O PyInstaller não faz cross-compile — o `.exe` precisa ser gerado em um
-Windows. O jeito recomendado é o **GitHub Actions**
-(`.github/workflows/build-windows.yml`): rode o workflow manualmente na aba
-Actions (ou crie uma tag `v*`) e baixe o `UnicesulabAgent.zip` dos
-artefatos; tags também anexam o zip à release.
-
-Para gerar localmente numa máquina Windows:
+Windows com [uv](https://docs.astral.sh/uv/) instalado:
 
 ```powershell
+uv sync
 uv run --with pyinstaller pyinstaller --noconsole --onefile --name UnicesulabAgent `
   --add-data "agent/ui/web;agent/ui/web" main.py
 ```
