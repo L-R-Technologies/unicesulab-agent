@@ -115,7 +115,12 @@ npm run build:css        # ou npm run watch:css durante o desenvolvimento
 ## Build (Windows)
 
 O PyInstaller não faz cross-compile — o `.exe` precisa ser gerado em um
-Windows com [uv](https://docs.astral.sh/uv/) instalado:
+Windows. O jeito recomendado é o **GitHub Actions**
+(`.github/workflows/build-windows.yml`): rode o workflow manualmente na aba
+Actions (ou crie uma tag `v*`) e baixe o `UnicesulabAgent.zip` dos
+artefatos; tags também anexam o zip à release.
+
+Para gerar localmente numa máquina Windows com [uv](https://docs.astral.sh/uv/):
 
 ```powershell
 uv sync
